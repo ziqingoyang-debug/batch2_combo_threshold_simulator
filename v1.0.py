@@ -48,10 +48,17 @@ def pct_to_float(x):
         return np.nan
     if isinstance(x, str):
         x = x.strip().replace("%", "")
-        if x == "":
+        # 兼容 "-" / "—" / "--" 等占位符：不删除行，转成 NaN
+        if x in {"", "-", "--", "—", "–"}:
             return np.nan
-        return float(x) / 100.0
-    return float(x)
+        try:
+            return float(x) / 100.0
+        except Exception:
+            return np.nan
+    try:
+        return float(x)
+    except Exception:
+        return np.nan
 
 df["费用增幅_pct"] = df["费用增幅%(二批次vs单包裹)"].apply(pct_to_float)
 
@@ -187,6 +194,76 @@ with left:
     st.write(f"- 候选订单数（包裹≥3 & 最终≥3批）：**{candidate['销售订单号'].nunique()}**")
     st.write(f"- 当前被阈值卡住订单数（>7%）：**{blocked['销售订单号'].nunique()}**")
     st.write(f"- 模拟解锁订单数：**{unlocked['销售订单号'].nunique()}**")
+
+    # ===========================
+    # 📈 回测结果（整体）——修正口径（只新增，不替换上面的内容）
+    # ===========================
+    st.subheader("📈 回测结果（整体）")
+
+    # 需要的字段（只做存在性校验，不删减别的逻辑）
+    NEED_OVERALL_COLS = [
+        "当前是否二批次（0/1）",
+        "实际批次_尾程费用",
+        "单包裹最优_尾程费用",
+        "销售收入",
+    ]
+    miss_overall = [c for c in NEED_OVERALL_COLS if c not in df.columns]
+    if miss_overall:
+        st.warning(f"缺少整体回测所需字段：{miss_overall}（将无法计算整体指标）")
+    else:
+        # 不删行：把 "-" 等占位符转成 NaN，再做求和
+        def to_num_series(s):
+            return pd.to_numeric(
+                s.astype(str)
+                 .str.strip()
+                 .replace({"": np.nan, "-": np.nan, "--": np.nan, "—": np.nan, "–": np.nan, "None": np.nan, "nan": np.nan}),
+                errors="coerce",
+            )
+
+        df_overall = df.copy()
+        df_overall["当前是否二批次（0/1）"] = to_num_series(df_overall["当前是否二批次（0/1）"])
+        df_overall["实际批次_尾程费用"] = to_num_series(df_overall["实际批次_尾程费用"])
+        df_overall["单包裹最优_尾程费用"] = to_num_series(df_overall["单包裹最优_尾程费用"])
+        df_overall["销售收入"] = to_num_series(df_overall["销售收入"])
+
+        # 二批次占比 before/after
+        total_orders_all = df_overall["销售订单号"].astype(str).nunique()
+        b2_before = df_overall.loc[df_overall["当前是否二批次（0/1）"] == 1, "销售订单号"].astype(str).nunique()
+        b2_after = b2_before + unlocked["销售订单号"].astype(str).nunique()
+
+        b2_ratio_before = (b2_before / total_orders_all) if total_orders_all else np.nan
+        b2_ratio_after = (b2_after / total_orders_all) if total_orders_all else np.nan
+
+        # 尾程费用增幅 before/after:
+        # before = (SUM(实际尾程费) - SUM(单包裹最优费)) / SUM(单包裹最优费)
+        # after  = ((SUM(实际尾程费) + SUM(解锁订单delta)) - SUM(单包裹最优费)) / SUM(单包裹最优费)
+        A_before = df_overall["实际批次_尾程费用"].sum(skipna=True)
+        S_all = df_overall["单包裹最优_尾程费用"].sum(skipna=True)
+        delta_unlocked_sum = pd.to_numeric(
+            unlocked["二批次vs实际批次_尾程运费变化"]
+            .astype(str)
+            .str.strip()
+            .replace({"": np.nan, "-": np.nan, "--": np.nan, "—": np.nan, "–": np.nan}),
+            errors="coerce"
+        ).sum(skipna=True)
+
+        A_after = A_before + delta_unlocked_sum
+
+        uplift_before = ((A_before - S_all) / S_all) if S_all not in (0, np.nan) and pd.notna(S_all) and S_all != 0 else np.nan
+        uplift_after = ((A_after - S_all) / S_all) if S_all not in (0, np.nan) and pd.notna(S_all) and S_all != 0 else np.nan
+
+        # 尾程费率差 before/after:
+        # before = (SUM(实际尾程费) - SUM(单包裹最优费)) / SUM(销售收入)
+        # after  = ((SUM(实际尾程费)+SUM(delta)) - SUM(单包裹最优费)) / SUM(销售收入)
+        R_all = df_overall["销售收入"].sum(skipna=True)
+
+        rate_gap_before = ((A_before - S_all) / R_all) if pd.notna(R_all) and R_all != 0 else np.nan
+        rate_gap_after = ((A_after - S_all) / R_all) if pd.notna(R_all) and R_all != 0 else np.nan
+
+        # 展示
+        st.write(f"- 二批次占比（before / after）：**{b2_ratio_before:.2%} → {b2_ratio_after:.2%}**")
+        st.write(f"- 尾程费用增幅（before / after）：**{uplift_before:.2%} → {uplift_after:.2%}**")
+        st.write(f"- 尾程费率差（before / after）：**{rate_gap_before:.2%} → {rate_gap_after:.2%}**")
 
 with right:
     st.subheader("📌 组合级建议输出（Recommendation）")
