@@ -68,7 +68,7 @@ df["费用增幅_pct"] = df["费用增幅%(二批次vs单包裹)"].apply(pct_to_
 st.sidebar.header("回测参数（输入）")
 
 base_threshold = 0.07  # 当前系统阈值固定
-sim_threshold_pct = st.sidebar.slider("模拟阈值（%）", 7, 15, 25, 30, 50, 80, 100, 100)
+sim_threshold_pct = st.sidebar.slider("模拟阈值（%）", 7, 100, 15)
 sim_threshold = sim_threshold_pct / 100.0
 
 # 建议规则参数（可调）
