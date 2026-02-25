@@ -73,8 +73,8 @@ sim_threshold = sim_threshold_pct / 100.0
 
 # 建议规则参数（可调）
 min_combo_orders = st.sidebar.number_input("组合最小样本数（用于输出建议）", min_value=1, value=1, step=1)
-max_avg_delta = st.sidebar.number_input("P0 单均成本增量上限（本币）", min_value=0.0, value=50.0, step=5.0)
-p90_uplift_cap = st.sidebar.slider("P0 P90费用增幅上限（%）", 7, 50, 18, 100) / 100.0
+max_avg_delta = st.sidebar.number_input("P0 单均成本增量上限（本币）", min_value=0.0, value=100.0, step=5.0)
+p90_uplift_cap = st.sidebar.slider("P0 P90费用增幅上限（%）", 7, 50, 100) / 100.0
 
 # -----------------------
 # 4) 基础分层：候选池 & 被卡住池
