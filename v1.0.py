@@ -29,7 +29,7 @@ REQ_COLS = [
     "最优二批次服务商组合",
     "费用增幅%(二批次vs单包裹)",
     "是否满足当前二批次阈值",
-    "二批次vs实际批次_尾程运费变化",
+    "二批次vs最终批次_尾程运费变化",
     "二批次最优_尾程费用",
 ]
 missing = [c for c in REQ_COLS if c not in df.columns]
@@ -68,13 +68,13 @@ df["费用增幅_pct"] = df["费用增幅%(二批次vs单包裹)"].apply(pct_to_
 st.sidebar.header("回测参数（输入）")
 
 base_threshold = 0.07  # 当前系统阈值固定
-sim_threshold_pct = st.sidebar.slider("模拟阈值（%）", 7, 25, 15, 1)
+sim_threshold_pct = st.sidebar.slider("模拟阈值（%）", 7, 25, 15, 100)
 sim_threshold = sim_threshold_pct / 100.0
 
 # 建议规则参数（可调）
 min_combo_orders = st.sidebar.number_input("组合最小样本数（用于输出建议）", min_value=1, value=1, step=1)
 max_avg_delta = st.sidebar.number_input("P0 单均成本增量上限（本币）", min_value=0.0, value=50.0, step=5.0)
-p90_uplift_cap = st.sidebar.slider("P0 P90费用增幅上限（%）", 7, 50, 18, 1) / 100.0
+p90_uplift_cap = st.sidebar.slider("P0 P90费用增幅上限（%）", 7, 50, 18, 100) / 100.0
 
 # -----------------------
 # 4) 基础分层：候选池 & 被卡住池
@@ -82,7 +82,7 @@ p90_uplift_cap = st.sidebar.slider("P0 P90费用增幅上限（%）", 7, 50, 18,
 # 候选池：进入分批决策且当前最终>=3批
 candidate = df[(df["包裹数"] >= 3) & (df["配送批次"] >= 3)].copy()
 
-# 被阈值卡住池：>7%（按你列“是否满足当前二批次阈值”的口径：1=不满足7%）
+# 被阈值卡住池：>7%（按“是否满足当前二批次阈值”的口径：1=不满足7%）
 blocked = candidate[candidate["是否满足当前二批次阈值"] == 1].copy()
 
 # 解锁：在模拟阈值下可放行
@@ -121,8 +121,8 @@ unlocked_g = (
     unlocked.groupby(combo_key)
     .agg(
         解锁订单数=("销售订单号", "nunique"),
-        成本增量_本币=("二批次vs实际批次_尾程运费变化", "sum"),
-        单均成本增量_本币=("二批次vs实际批次_尾程运费变化", "mean"),
+        成本增量_本币=("二批次vs最终批次_尾程运费变化", "sum"),
+        单均成本增量_本币=("二批次vs最终批次_尾程运费变化", "mean"),
         解锁P50费用增幅_pct=("费用增幅_pct", "median"),
         解锁P90费用增幅_pct=("费用增幅_pct", lambda s: pctl(s, 90)),
         解锁包裹数_P50=("包裹数", "median"),
@@ -203,7 +203,7 @@ with left:
     # 需要的字段（只做存在性校验，不删减别的逻辑）
     NEED_OVERALL_COLS = [
         "当前是否二批次（0/1）",
-        "实际批次_尾程费用",
+        "最终批次_尾程费用",
         "单包裹最优_尾程费用",
         "销售收入",
     ]
@@ -222,7 +222,7 @@ with left:
 
         df_overall = df.copy()
         df_overall["当前是否二批次（0/1）"] = to_num_series(df_overall["当前是否二批次（0/1）"])
-        df_overall["实际批次_尾程费用"] = to_num_series(df_overall["实际批次_尾程费用"])
+        df_overall["最终批次_尾程费用"] = to_num_series(df_overall["最终批次_尾程费用"])
         df_overall["单包裹最优_尾程费用"] = to_num_series(df_overall["单包裹最优_尾程费用"])
         df_overall["销售收入"] = to_num_series(df_overall["销售收入"])
 
@@ -235,12 +235,12 @@ with left:
         b2_ratio_after = (b2_after / total_orders_all) if total_orders_all else np.nan
 
         # 尾程费用增幅 before/after:
-        # before = (SUM(实际尾程费) - SUM(单包裹最优费)) / SUM(单包裹最优费)
-        # after  = ((SUM(实际尾程费) + SUM(解锁订单delta)) - SUM(单包裹最优费)) / SUM(单包裹最优费)
-        A_before = df_overall["实际批次_尾程费用"].sum(skipna=True)
+        # before = (SUM(最终尾程费) - SUM(单包裹最优费)) / SUM(单包裹最优费)
+        # after  = ((SUM(最终尾程费) + SUM(解锁订单delta)) - SUM(单包裹最优费)) / SUM(单包裹最优费)
+        A_before = df_overall["最终批次_尾程费用"].sum(skipna=True)
         S_all = df_overall["单包裹最优_尾程费用"].sum(skipna=True)
         delta_unlocked_sum = pd.to_numeric(
-            unlocked["二批次vs实际批次_尾程运费变化"]
+            unlocked["二批次vs最终批次_尾程运费变化"]
             .astype(str)
             .str.strip()
             .replace({"": np.nan, "-": np.nan, "--": np.nan, "—": np.nan, "–": np.nan}),
@@ -253,8 +253,8 @@ with left:
         uplift_after = ((A_after - S_all) / S_all) if S_all not in (0, np.nan) and pd.notna(S_all) and S_all != 0 else np.nan
 
         # 尾程费率差 before/after:
-        # before = (SUM(实际尾程费) - SUM(单包裹最优费)) / SUM(销售收入)
-        # after  = ((SUM(实际尾程费)+SUM(delta)) - SUM(单包裹最优费)) / SUM(销售收入)
+        # before = (SUM(最终尾程费) - SUM(单包裹最优费)) / SUM(销售收入)
+        # after  = ((SUM(最终尾程费)+SUM(delta)) - SUM(单包裹最优费)) / SUM(销售收入)
         R_all = df_overall["销售收入"].sum(skipna=True)
 
         rate_gap_before = ((A_before - S_all) / R_all) if pd.notna(R_all) and R_all != 0 else np.nan
@@ -286,7 +286,7 @@ with right:
 
     detail_cols = [
         "销售订单号", "包裹数", "配送批次", "最优二批次服务商组合",
-        "费用增幅%(二批次vs单包裹)", "二批次vs实际批次_尾程运费变化", "二批次最优_尾程费用"
+        "费用增幅%(二批次vs单包裹)", "二批次vs最终批次_尾程运费变化", "二批次最优_尾程费用"
     ]
     detail = unlocked[unlocked[combo_key] == selected_combo].copy()
     st.dataframe(detail[detail_cols], use_container_width=True, height=320)
